@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="bn">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#10241E">
+<title>ভোজএআই</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anek+Bangla:wght@400;600;800&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#EEF3F0;--ink:#10241E;--muted:#5B6F67;--card:#fff;--haldi:#F2A900;--chili:#B8321F;--line:#D5E0DA}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Anek Bangla",system-ui,sans-serif;line-height:1.5;-webkit-tap-highlight-color:transparent}
+main{max-width:480px;margin:0 auto;padding:20px 16px 56px}
+h1{font-size:36px;font-weight:800;margin:6px 0 2px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 18px}
+#prev{width:100%;aspect-ratio:4/3;border-radius:20px;background:#DFE9E4 center/cover no-repeat;display:grid;place-items:center;color:var(--muted);text-align:center;padding:16px}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}
+.btn{display:flex;align-items:center;justify-content:center;min-height:56px;border-radius:16px;font:600 18px "Anek Bangla",system-ui,sans-serif;cursor:pointer;border:2px solid var(--ink);background:transparent;color:var(--ink)}
+.btn.main{background:var(--ink);color:#fff}
+.btn:focus-visible,.step button:focus-visible{outline:3px solid var(--haldi);outline-offset:2px}
+input[type=file]{display:none}
+#msg{min-height:24px;margin:4px 0 8px;color:var(--muted)}
+#msg.err{color:var(--chili);font-weight:600}
+.hero{background:var(--ink);color:#fff;border-radius:20px;padding:22px 20px;margin:8px 0 14px}
+.big{font-size:64px;line-height:1;font-weight:800;color:var(--haldi)}
+.unit{font-size:20px;margin-top:2px}
+.range{color:#B9CBC3;margin-top:8px}
+.item{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:10px}
+.top{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}
+.top b{font-size:19px;display:block}
+.top span{color:var(--muted);font-size:14px}
+.kcal{font-size:24px;font-weight:800;white-space:nowrap}
+.kcal small{font-size:13px;font-weight:400;color:var(--muted)}
+.portion{margin:6px 0;font-weight:600}
+.macros{display:flex;flex-wrap:wrap;gap:4px 16px;color:var(--muted);font-size:14px}
+.step{display:flex;align-items:center;gap:8px;margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.step span{flex:1;font-size:14px;color:var(--muted)}
+.step button{width:44px;height:44px;border-radius:12px;border:2px solid var(--ink);background:#fff;font-size:22px;font-weight:600;cursor:pointer;color:var(--ink)}
+.note{color:var(--muted);font-size:14px;margin-top:14px}
+</style>
+</head>
+<body>
+<main>
+  <h1>ভোজএআই</h1>
+  <p class="sub">থালার ছবি তুলুন, ক্যালরি জানুন।</p>
+
+  <div id="prev">ভাত, তরকারি, মাছ — যা আছে থালায়</div>
+
+  <div class="btns">
+    <label class="btn main">ক্যামেরা<input id="cam" type="file" accept="image/*" capture="environment"></label>
+    <label class="btn">গ্যালারি<input id="gal" type="file" accept="image/*"></label>
+  </div>
+
+  <div id="msg" role="status"></div>
+  <div id="res"></div>
+
+  <p class="note">এটি আনুমানিক হিসাব, চিকিৎসা পরামর্শ নয়।</p>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+const bn = n => Number(n).toLocaleString("bn-BD");
+const r1 = n => Math.round(n * 10) / 10;
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let items = [];
+
+function setMsg(t, err) { const m = $("#msg"); m.textContent = t; m.className = err ? "err" : ""; }
+
+function resize(file) {
+  return new Promise((ok, no) => {
+    const img = new Image(), u = URL.createObjectURL(file);
+    img.onload = () => {
+      const r = Math.min(1, 1024 / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(u);
+      ok(c.toDataURL("image/jpeg", 0.82));
+    };
+    img.onerror = () => no(new Error("img"));
+    img.src = u;
+  });
+}
+
+function render() {
+  let t = 0, lo = 0, hi = 0;
+  items.forEach(i => { t += i.calories * i.q; lo += i.calories_min * i.q; hi += i.calories_max * i.q; });
+  const cards = items.map((it, i) => `
+    <article class="item">
+      <div class="top">
+        <div><b>${esc(it.name_bn)}</b><span>${esc(it.name_en)}</span></div>
+        <div class="kcal">${bn(Math.round(it.calories * it.q))}<small> kcal</small></div>
+      </div>
+      <div class="portion">${esc(it.portion)}${it.q !== 1 ? " × " + bn(it.q) : ""}</div>
+      <div class="macros">
+        <span>প্রোটিন ${bn(r1(it.protein_g * it.q))} গ্রাম</span>
+        <span>কার্ব ${bn(r1(it.carbs_g * it.q))} গ্রাম</span>
+        <span>ফ্যাট ${bn(r1(it.fat_g * it.q))} গ্রাম</span>
+      </div>
+      <div class="step">
+        <span>পরিমাণ ঠিক করুন</span>
+        <button data-i="${i}" data-d="-0.5" aria-label="কমান">−</button>
+        <button data-i="${i}" data-d="0.5" aria-label="বাড়ান">+</button>
+      </div>
+    </article>`).join("");
+  $("#res").innerHTML = `
+    <section class="hero">
+      <div class="big">${bn(Math.round(t))}</div>
+      <div class="unit">ক্যালরি</div>
+      <div class="range">${bn(Math.round(lo))} থেকে ${bn(Math.round(hi))}-এর মধ্যে হতে পারে</div>
+    </section>${cards}`;
+}
+
+document.addEventListener("click", e => {
+  const b = e.target.closest("button[data-i]");
+  if (!b) return;
+  const it = items[+b.dataset.i];
+  it.q = Math.min(5, Math.max(0.5, it.q + +b.dataset.d));
+  render();
+});
+
+async function run(file) {
+  if (!file) return;
+  $("#res").innerHTML = "";
+  setMsg("ছবি তৈরি হচ্ছে…");
+  try {
+    const url = await resize(file);
+    $("#prev").style.backgroundImage = `url(${url})`;
+    $("#prev").textContent = "";
+    setMsg("বিশ্লেষণ হচ্ছে… ১০ থেকে ২০ সেকেন্ড লাগতে পারে");
+    const ctl = new AbortController(), to = setTimeout(() => ctl.abort(), 60000);
+    const r = await fetch("/api/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ image: url.split(",")[1], mimeType: "image/jpeg" }),
+      signal: ctl.signal
+    });
+    clearTimeout(to);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setMsg(d.error === "not_food"
+        ? "এই ছবিতে খাবার পাওয়া যায়নি। থালার কাছ থেকে আবার তুলুন।"
+        : "এখন বিশ্লেষণ করা যায়নি। একটু পরে আবার চেষ্টা করুন।", true);
+      return;
+    }
+    items = d.items.map(x => ({ ...x, q: 1 }));
+    setMsg("");
+    render();
+  } catch (e) {
+    setMsg(e.name === "AbortError" ? "অনেক সময় লাগছে। আবার চেষ্টা করুন।" : "ছবি পড়া যায়নি। আবার চেষ্টা করুন।", true);
+  }
+}
+
+["cam", "gal"].forEach(id => $("#" + id).addEventListener("change", e => { run(e.target.files[0]); e.target.value = ""; }));
+</script>
+</body>
+</html>
